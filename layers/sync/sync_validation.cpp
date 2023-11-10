@@ -19,6 +19,9 @@
 #include <limits>
 #include <memory>
 #include <vector>
+#include <iostream>
+#include <sstream>
+#include <fstream>
 
 #include "sync/sync_validation.h"
 #include "sync/sync_utils.h"
@@ -882,8 +885,27 @@ bool ForEachEntryInRangesUntil(const RangeMap &map, RangeGen &range_gen, Action 
     auto pos = map.lower_bound(*range_gen);
     const auto end = map.end();
     IndexType skip_limit = 0;
+    int i = 0;
+
+    std::ofstream fout("output.txt", std::ios::app);
+    auto &outs = fout;
+    // auto &outs = std::cout;
+
+    auto print_range = [](const char *name, auto r) {
+        std::stringstream ss;
+        ss << name << ": [" << r.begin << ", " << r.end << "]";
+        return ss.str();
+    };
+
+    outs << ">>> ForEachEntryInRangesUntil start";
+    outs << ">>> ForEachEntryInRangesUntil start";
+    outs << print_range("pos (initial)", pos->first) << std::endl;
+
     for (; range_gen->non_empty() && pos != end; ++range_gen) {
+        outs << ">>> loop iter " << i << ", skip_limit: " << skip_limit << std::endl;
+
         RangeType range = *range_gen;
+        outs << ">>>   " << print_range("range", range) << std::endl;
         // See if a prev pos has covered this range
         if (range.end <= skip_limit) {
             // Since the map is const, we needn't call action on the same pos again
@@ -897,12 +919,27 @@ bool ForEachEntryInRangesUntil(const RangeMap &map, RangeGen &range_gen, Action 
         }
 
         // Now advance pos as needed to match range
+        auto last_pos = pos;
         if (pos->first.strictly_less(range)) {
             ++pos;
             if (pos->first.strictly_less(range)) {
                 pos = map.lower_bound(range);
                 if (pos == end) break;
             }
+        }
+        auto lower_bound_pos = map.lower_bound(range);
+        outs << ">>>   " << print_range("pos (in loop)", pos->first) << std::endl;
+        outs << ">>>   " << print_range("map.lower_bound(range)", lower_bound_pos->first) << std::endl;
+
+        outs << ">>>   map: " << std::endl;
+        for (auto it = map.begin(); it != map.end(); ++it) {
+            outs << ">>>     " << print_range("", it->first) << std::endl;
+        }
+
+        if (pos != lower_bound_pos) {
+            outs << ">>> ASSERT!" << std::endl;
+            int a = 0;
+            a = 1;
         }
         assert(pos == map.lower_bound(range));
 
@@ -912,6 +949,8 @@ bool ForEachEntryInRangesUntil(const RangeMap &map, RangeGen &range_gen, Action 
 
         // Action is allowed to alter pos but shouldn't do so if range is strictly < pos->first
         if (action(range, end, pos)) return true;
+
+        ++i;
     }
 
     // Action needs to handle the "at end " condition (and can be useful for recursive actions)
@@ -7628,8 +7667,7 @@ bool SyncOpEndRenderPass::ReplayValidate(ReplayState &replay, ResourceUsageTag r
     return skip;
 }
 
-void SyncOpEndRenderPass::ReplayRecord(CommandExecutionContext &exec_context, ResourceUsageTag exec_tag) const {
-}
+void SyncOpEndRenderPass::ReplayRecord(CommandExecutionContext &exec_context, ResourceUsageTag exec_tag) const {}
 
 void SyncValidator::PreCallRecordCmdWriteBufferMarker2AMD(VkCommandBuffer commandBuffer, VkPipelineStageFlags2KHR pipelineStage,
                                                           VkBuffer dstBuffer, VkDeviceSize dstOffset, uint32_t marker,
@@ -7968,7 +8006,7 @@ void SyncValidator::RecordQueueSubmit(VkQueue queue, VkFence fence, const Record
     vvl::TlsGuard<QueueSubmitCmdState> cmd_state;
 
     if (VK_SUCCESS != record_obj.result) return;  // dispatched QueueSubmit failed
-    if (!cmd_state->queue) return;     // Validation couldn't find a valid queue object
+    if (!cmd_state->queue) return;                // Validation couldn't find a valid queue object
 
     // Don't need to look up the queue state again, but we need a non-const version
     std::shared_ptr<QueueSyncState> queue_state = std::const_pointer_cast<QueueSyncState>(std::move(cmd_state->queue));
@@ -8087,7 +8125,6 @@ AttachmentViewGen::Gen AttachmentViewGen::GetDepthStencilRenderAreaGenType(bool 
     assert(depth_op || stencil_op);
     return kRenderArea;
 }
-
 
 void SyncEventsContext::ApplyBarrier(const SyncExecScope &src, const SyncExecScope &dst, ResourceUsageTag tag) {
     const bool all_commands_bit = 0 != (src.mask_param & VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
@@ -8912,10 +8949,7 @@ PresentedImage syncval_state::Swapchain::MovePresentedImage(uint32_t image_index
 }
 
 AcquiredImage::AcquiredImage(const PresentedImage &presented, ResourceUsageTag acq_tag)
-    : image(presented.image),
-      generator(presented.range_gen),
-      present_tag(presented.tag),
-      acquire_tag(acq_tag) {}
+    : image(presented.image), generator(presented.range_gen), present_tag(presented.tag), acquire_tag(acq_tag) {}
 
 FenceSyncState::FenceSyncState(const std::shared_ptr<const FENCE_STATE> &fence_, QueueId queue_id_, ResourceUsageTag tag_)
     : fence(fence_), tag(tag_), queue_id(queue_id_) {}
